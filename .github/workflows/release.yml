@@ -24,91 +24,84 @@ jobs:
     name: 🏷️ Determine Version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.calculate.outputs.version }}
-      version_tag: ${{ steps.calculate.outputs.version_tag }}
-      previous_tag: ${{ steps.calculate.outputs.previous_tag }}
-      is_first_release: ${{ steps.calculate.outputs.is_first_release }}
-      is_release: ${{ steps.calculate.outputs.is_release }}
+      version: ${{ steps.semver.outputs.nextStrict }}
+      version_tag: ${{ steps.semver.outputs.next }}
+      previous_tag: ${{ steps.semver.outputs.current }}
+      is_release: ${{ steps.check.outputs.is_release }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Calculate Version
-        id: calculate
+      - name: Check for existing tags
+        id: tags
         run: |
-          # Get the latest tag
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          
-          if [[ -z "$LATEST_TAG" ]]; then
-            echo "📦 No existing tags found - this will be the first release"
-            echo "is_first_release=true" >> $GITHUB_OUTPUT
-            echo "previous_tag=" >> $GITHUB_OUTPUT
-            CURRENT_MAJOR=0
-            CURRENT_MINOR=0
-            CURRENT_PATCH=0
+          if git describe --tags --abbrev=0 2>/dev/null; then
+            echo "has_tags=true" >> $GITHUB_OUTPUT
           else
-            echo "📦 Latest tag: $LATEST_TAG"
-            echo "is_first_release=false" >> $GITHUB_OUTPUT
-            echo "previous_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-            # Parse version (remove 'v' prefix if present)
-            VERSION="${LATEST_TAG#v}"
-            IFS='.' read -r CURRENT_MAJOR CURRENT_MINOR CURRENT_PATCH <<< "$VERSION"
+            echo "has_tags=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Create initial tag if none exists
+        if: steps.tags.outputs.has_tags == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Create v0.0.0 tag on first commit
+          FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+          git tag v0.0.0 $FIRST_COMMIT
+          git push origin v0.0.0
+
+      - name: Get Next Version
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          patchList: fix, bugfix, perf, refactor, test, tests, chore, ci, docs, style
+          minorList: feat, feature
+          majorList: major, breaking
+
+      - name: Override with manual input
+        if: github.event_name == 'workflow_dispatch'
+        id: manual
+        run: |
+          CURRENT="${{ steps.semver.outputs.current }}"
+          BUMP="${{ inputs.version_type }}"
           
-          # Determine bump type
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            BUMP_TYPE="${{ inputs.version_type }}"
-          else
-            # Analyze commits for conventional commit prefixes
-            if [[ -z "$LATEST_TAG" ]]; then
-              COMMITS=$(git log --oneline)
-            else
-              COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline)
-            fi
-            
-            if echo "$COMMITS" | grep -qiE "^[a-f0-9]+ (feat!|BREAKING CHANGE)"; then
-              BUMP_TYPE="major"
-            elif echo "$COMMITS" | grep -qiE "^[a-f0-9]+ feat"; then
-              BUMP_TYPE="minor"
-            else
-              BUMP_TYPE="patch"
-            fi
-          fi
+          VERSION="${CURRENT#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
           
-          echo "📊 Bump type: $BUMP_TYPE"
-          
-          # Calculate new version
-          case "$BUMP_TYPE" in
-            major)
-              NEW_VERSION="$((CURRENT_MAJOR + 1)).0.0"
-              ;;
-            minor)
-              NEW_VERSION="${CURRENT_MAJOR}.$((CURRENT_MINOR + 1)).0"
-              ;;
-            patch)
-              NEW_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.$((CURRENT_PATCH + 1))"
-              ;;
+          case "$BUMP" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
           esac
           
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
-          
-          # Check if release is needed
+
+      - name: Check if release needed
+        id: check
+        run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "is_release=true" >> $GITHUB_OUTPUT
-          elif [[ -z "$LATEST_TAG" ]]; then
+          elif [[ "${{ steps.semver.outputs.next }}" != "${{ steps.semver.outputs.current }}" ]]; then
             echo "is_release=true" >> $GITHUB_OUTPUT
           else
-            COMMIT_COUNT=$(git rev-list ${LATEST_TAG}..HEAD --count)
-            if [[ "$COMMIT_COUNT" -gt 0 ]]; then
-              echo "is_release=true" >> $GITHUB_OUTPUT
-            else
-              echo "is_release=false" >> $GITHUB_OUTPUT
-            fi
+            echo "is_release=false" >> $GITHUB_OUTPUT
           fi
-          
-          echo "🏷️ New version: v$NEW_VERSION"
+
+      - name: Set final outputs
+        id: final
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "final_version=${{ steps.manual.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "final_tag=${{ steps.manual.outputs.version_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "final_version=${{ steps.semver.outputs.nextStrict }}" >> $GITHUB_OUTPUT
+            echo "final_tag=${{ steps.semver.outputs.next }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Version Summary
         run: |
@@ -116,10 +109,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Previous | ${{ steps.calculate.outputs.previous_tag || 'None (first release)' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Next | ${{ steps.calculate.outputs.version_tag }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| First Release | ${{ steps.calculate.outputs.is_first_release }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Will Release | ${{ steps.calculate.outputs.is_release }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Current | ${{ steps.semver.outputs.current }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Next | ${{ steps.semver.outputs.next }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bump | ${{ steps.semver.outputs.bump }} |" >> $GITHUB_STEP_SUMMARY
 
   # ==================== Release ====================
   release:
@@ -152,7 +144,6 @@ jobs:
 
       - name: Generate Changelog
         id: changelog
-        if: needs.version.outputs.is_first_release != 'true'
         uses: mikepenz/release-changelog-builder-action@v4
         with:
           fromTag: ${{ needs.version.outputs.previous_tag }}
@@ -187,7 +178,7 @@ jobs:
           body: |
             ## What's Changed
             
-            ${{ needs.version.outputs.is_first_release == 'true' && '🎉 Initial release!' || steps.changelog.outputs.changelog }}
+            ${{ steps.changelog.outputs.changelog }}
             
             ---
             📦 **Version**: `${{ needs.version.outputs.version }}`
@@ -197,11 +188,6 @@ jobs:
           generate_release_notes: true
           files: |
             **/build/libs/*.jar
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish to GitHub Packages
-        run: ./gradlew publish -Pversion=${{ needs.version.outputs.version }} --no-daemon || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
