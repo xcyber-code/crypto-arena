@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Exclude generated code -->
+    <Match>
+        <Source name="~.*_jcstress\.java"/>
+    </Match>
+
+    <!-- Exclude benchmark classes -->
+    <Match>
+        <Package name="~.*\.benchmarks\..*"/>
+    </Match>
+
+    <!-- Exclude test classes -->
+    <Match>
+        <Source name="~.*Test\.java"/>
+    </Match>
+    <Match>
+        <Source name="~.*Tests\.java"/>
+    </Match>
+
+    <!-- Exclude specific low-priority bugs -->
+    <Match>
+        <Bug pattern="SE_BAD_FIELD"/>
+    </Match>
+
+    <!-- Exclude Kotlin-generated code patterns -->
+    <Match>
+        <Bug pattern="NP_PARAMETER_MUST_BE_NONNULL_BUT_MARKED_AS_NULLABLE"/>
+    </Match>
+
+    <!-- Exclude certain performance warnings in specific packages -->
+    <Match>
+        <Package name="~io\.cryptoarena\.stress\..*"/>
+        <Bug category="PERFORMANCE"/>
+    </Match>
+</FindBugsFilter>

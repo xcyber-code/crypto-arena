@@ -1,0 +1,87 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'crypto-arena-benchmarks/**'
+      - 'crypto-arena-engine/**'
+      - 'common/**'
+  workflow_dispatch:
+  schedule:
+    # Run benchmarks weekly on Sunday at 2am UTC
+    - cron: '0 2 * * 0'
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '25'
+
+jobs:
+  jmh-benchmarks:
+    name: 🚀 JMH Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run JMH Benchmarks
+        run: ./gradlew :crypto-arena-benchmarks:jmh --no-daemon
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmh-results
+          path: crypto-arena-benchmarks/build/reports/jmh/
+          retention-days: 30
+
+      - name: Store Benchmark Result
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: JMH Benchmark
+          tool: 'jmh'
+          output-file-path: crypto-arena-benchmarks/build/reports/jmh/results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '150%'
+          comment-on-alert: true
+          fail-on-alert: false
+
+  jcstress:
+    name: 🔥 JCStress Concurrency Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run JCStress Tests
+        run: ./gradlew :crypto-arena-stress:jcstress --no-daemon || true
+
+      - name: Upload JCStress Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jcstress-results
+          path: crypto-arena-stress/build/reports/jcstress/
+          retention-days: 30

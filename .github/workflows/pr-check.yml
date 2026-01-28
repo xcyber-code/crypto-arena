@@ -1,0 +1,139 @@
+name: PR Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '25'
+
+jobs:
+  # ==================== Changed Files Detection ====================
+  changes:
+    name: 🔍 Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      java: ${{ steps.filter.outputs.java }}
+      gradle: ${{ steps.filter.outputs.gradle }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            java:
+              - '**/*.java'
+              - '**/build.gradle.kts'
+              - 'gradle/**'
+            gradle:
+              - '**/build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle/**'
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+
+  # ==================== Quick Validation ====================
+  validate:
+    name: ✅ Validate
+    needs: changes
+    if: needs.changes.outputs.java == 'true' || needs.changes.outputs.gradle == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation-action@v4
+
+      - name: Compile & Test
+        run: ./gradlew build --no-daemon
+
+      - name: Comment Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: '**/build/test-results/test/*.xml'
+          comment_mode: update last
+          check_name: 'Test Results'
+
+  # ==================== Code Review Hints ====================
+  review-hints:
+    name: 💡 Review Hints
+    needs: changes
+    if: needs.changes.outputs.java == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR Size
+        uses: codelytv/pr-size-labeler@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          xs_label: 'size/XS'
+          xs_max_size: 10
+          s_label: 'size/S'
+          s_max_size: 100
+          m_label: 'size/M'
+          m_max_size: 500
+          l_label: 'size/L'
+          l_max_size: 1000
+          xl_label: 'size/XL'
+          fail_if_xl: false
+
+      - name: Add Labels
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==================== Security Quick Check ====================
+  security-quick:
+    name: 🔒 Security Quick
+    needs: changes
+    if: needs.changes.outputs.gradle == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  # ==================== PR Ready ====================
+  pr-ready:
+    name: 🎯 PR Ready
+    needs: [validate, review-hints]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Status
+        run: |
+          if [[ "${{ needs.validate.result }}" == "failure" ]]; then
+            echo "❌ Validation failed"
+            exit 1
+          fi
+          echo "✅ PR is ready for review!"

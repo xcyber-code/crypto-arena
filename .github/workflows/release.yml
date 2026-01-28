@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
+
+env:
+  JAVA_VERSION: '25'
+
+jobs:
+  # ==================== Determine Version ====================
+  version:
+    name: 🏷️ Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      version_tag: ${{ steps.semver.outputs.version_tag }}
+      previous_version: ${{ steps.semver.outputs.previous_version }}
+      bump_type: ${{ steps.semver.outputs.bump_type }}
+      is_release: ${{ steps.check.outputs.is_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Next Version (Semantic)
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          # Use conventional commits to determine bump type
+          # feat: -> minor, fix: -> patch, BREAKING CHANGE: -> major
+          patchList: fix, bugfix, perf, refactor, test, tests, chore, ci, docs, style
+          minorList: feat, feature
+          majorList: major, breaking
+
+      - name: Override with manual input
+        if: github.event_name == 'workflow_dispatch'
+        id: manual
+        run: |
+          CURRENT="${{ steps.semver.outputs.current }}"
+          BUMP="${{ inputs.version_type }}"
+          
+          # Parse current version
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT#v}"
+          
+          case "$BUMP" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+          esac
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set final version
+        id: final
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "version=${{ steps.manual.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "version_tag=${{ steps.manual.outputs.version_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ steps.semver.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "version_tag=${{ steps.semver.outputs.version_tag }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if release needed
+        id: check
+        run: |
+          # Check if there are changes since last tag
+          CHANGES=$(git log ${{ steps.semver.outputs.current }}..HEAD --oneline 2>/dev/null | wc -l)
+          if [[ "$CHANGES" -gt 0 ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "📦 Release needed: ${{ steps.final.outputs.version_tag }}"
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No changes since last release"
+          fi
+
+      - name: Version Summary
+        run: |
+          echo "### 🏷️ Version Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Previous | ${{ steps.semver.outputs.current }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Next | ${{ steps.final.outputs.version_tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bump Type | ${{ steps.semver.outputs.bump_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Is Release | ${{ steps.check.outputs.is_release }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ==================== Release ====================
+  release:
+    name: 🚀 Release
+    needs: version
+    if: needs.version.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Release
+        run: ./gradlew build -Pversion=${{ needs.version.outputs.version }} -x test --no-daemon
+
+      - name: Run Tests
+        run: ./gradlew test --no-daemon
+
+      - name: Generate Changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          fromTag: ${{ needs.version.outputs.previous_version }}
+          toTag: HEAD
+          configuration: |
+            {
+              "categories": [
+                { "title": "## 🚀 Features", "labels": ["feature", "enhancement"] },
+                { "title": "## 🐛 Bug Fixes", "labels": ["bug", "fix"] },
+                { "title": "## ⚡ Performance", "labels": ["performance", "perf"] },
+                { "title": "## 📚 Documentation", "labels": ["documentation", "docs"] },
+                { "title": "## 🧪 Tests", "labels": ["test", "tests"] },
+                { "title": "## 🔧 Maintenance", "labels": ["chore", "maintenance", "ci"] }
+              ],
+              "template": "#{{CHANGELOG}}\n\n**Full Changelog**: #{{RELEASE_DIFF}}"
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ needs.version.outputs.version_tag }} -m "Release ${{ needs.version.outputs.version }}"
+          git push origin ${{ needs.version.outputs.version_tag }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.version_tag }}
+          name: Release ${{ needs.version.outputs.version }}
+          body: |
+            ## What's Changed
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ---
+            📦 **Version**: `${{ needs.version.outputs.version }}`
+            🏷️ **Tag**: `${{ needs.version.outputs.version_tag }}`
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            **/build/libs/*.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publish -Pversion=${{ needs.version.outputs.version }} --no-daemon || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release Summary
+        run: |
+          echo "### 🚀 Release Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Version ${{ needs.version.outputs.version }}** has been released!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ needs.version.outputs.version_tag }})" >> $GITHUB_STEP_SUMMARY
+
