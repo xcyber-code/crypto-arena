@@ -24,20 +24,44 @@ dependencyCheck {
     // Suppress false positives
     suppressionFile = "config/owasp/suppressions.xml"
 
-    // NVD API configuration (optional, for faster updates)
+    // NVD API configuration - use API key for 10x faster downloads
+    // Get your free key at: https://nvd.nist.gov/developers/request-an-api-key
     nvd {
-        delay = 3500
+        apiKey = System.getenv("NVD_API_KEY") ?: ""
+        delay = if (System.getenv("NVD_API_KEY").isNullOrEmpty()) 3500 else 0
+        datafeedUrl = "https://nvd.nist.gov/feeds/json/cve/1.1"
     }
 
-    // Analyzers
+    // Cache configuration
+    data {
+        directory = System.getProperty("user.home") + "/.gradle/dependency-check-data"
+    }
+
+    // Analyzers - disable unused ones for speed
     analyzers {
         assemblyEnabled = false
         nodeEnabled = false
         nodeAuditEnabled = false
+        nuspecEnabled = false
+        nugetconfEnabled = false
+        pyDistributionEnabled = false
+        pyPackageEnabled = false
+        rubygemsEnabled = false
+        bundleAuditEnabled = false
+        cocoapodsEnabled = false
+        swiftEnabled = false
+        cmakeEnabled = false
+        autoconfEnabled = false
+        composerEnabled = false
+        cpanEnabled = false
+        dartEnabled = false
         retirejs {
             enabled = false
         }
     }
+
+    // Skip test dependencies for faster scan
+    skipConfigurations = listOf("testImplementation", "testRuntimeOnly", "testCompileOnly")
 }
 
 

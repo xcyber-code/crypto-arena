@@ -160,7 +160,7 @@ jobs:
     name: 🔒 Security Scan
     needs: quick-check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     # Only run on main branch or PRs to main
     if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
     steps:
@@ -175,8 +175,20 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Cache NVD database to speed up OWASP check
+      - name: Cache NVD Database
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/dependency-check-data
+          key: nvd-${{ runner.os }}-${{ hashFiles('**/build.gradle.kts') }}
+          restore-keys: |
+            nvd-${{ runner.os }}-
+
       - name: OWASP Dependency Check
-        run: ./gradlew dependencyCheckAnalyze --no-daemon || true
+        run: ./gradlew dependencyCheckAnalyze --no-daemon -Dorg.gradle.workers.max=2 || true
+        env:
+          # Optional: NVD API key for faster downloads (get from https://nvd.nist.gov/developers/request-an-api-key)
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
       - name: Upload OWASP Report
         uses: actions/upload-artifact@v4
