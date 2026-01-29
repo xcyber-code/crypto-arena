@@ -26,14 +26,15 @@ jobs:
       - name: Create publish directory
         run: mkdir -p publish
 
-      - name: Download Allure Results (from Build)
+      - name: Download Allure Results (from CI)
         uses: dawidd6/action-download-artifact@v3
         with:
-          workflow: build.yml
+          workflow: ci.yml
           name: allure-results
           path: downloaded/allure-results
           if_no_artifact_found: warn
           search_artifacts: true
+          branch: main
         continue-on-error: true
 
       - name: Download JMH Results (from Benchmarks)
