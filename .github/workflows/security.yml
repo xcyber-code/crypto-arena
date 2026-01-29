@@ -1,10 +1,8 @@
 name: Security Scan (OWASP)
 
-"on":
-  # Weekly on Sunday at 2 AM UTC
+on:
   schedule:
     - cron: '0 2 * * 0'
-  # Manual trigger
   workflow_dispatch:
 
 env:
