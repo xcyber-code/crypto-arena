@@ -1,0 +1,190 @@
+name: Publish to GitHub Pages
+
+on:
+  workflow_run:
+    workflows: ["CI", "Benchmarks"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  publish:
+    name: 📤 Publish Reports to GitHub Pages
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup gh-pages branch
+        run: |
+          if git ls-remote --heads origin gh-pages | grep gh-pages; then
+            git checkout gh-pages
+            git pull origin gh-pages
+          else
+            git checkout --orphan gh-pages
+            git reset --hard
+            git clean -fd
+          fi
+
+      - name: Download Allure Results (from CI)
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ci.yml
+          name: allure-results
+          path: downloaded/allure-results
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Download JMH Results (from Benchmarks)
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: benchmarks.yml
+          name: jmh-results
+          path: downloaded/jmh-results
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Download JCStress Results (from Benchmarks)
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: benchmarks.yml
+          name: jcstress-results
+          path: downloaded/jcstress-results
+          if_no_artifact_found: warn
+        continue-on-error: true
+
+      - name: Install Allure CLI
+        run: |
+          mkdir -p /tmp/allure-cli
+          curl -o /tmp/allure.tgz -Ls https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.tgz
+          tar -zxvf /tmp/allure.tgz -C /tmp/allure-cli
+          echo "/tmp/allure-cli/allure-2.29.0/bin" >> $GITHUB_PATH
+
+      - name: Debug downloaded artifacts
+        run: |
+          echo "=== Allure results ==="
+          find downloaded/allure-results -type f 2>/dev/null | head -20 || echo "No allure results"
+          echo "=== JMH results ==="
+          find downloaded/jmh-results -type f 2>/dev/null | head -20 || echo "No JMH results"
+          echo "=== JCStress results ==="
+          find downloaded/jcstress-results -type f 2>/dev/null | head -20 || echo "No JCStress results"
+
+      - name: Generate Allure Report
+        run: |
+          rm -rf allure
+          mkdir -p allure
+          if [ -d "downloaded/allure-results" ] && [ -n "$(find downloaded/allure-results -name '*.json' 2>/dev/null)" ]; then
+            allure generate downloaded/allure-results --clean -o allure
+            echo "✅ Allure report generated"
+          else
+            echo "<html><body><h1>No Allure Results</h1><p>No test results available yet.</p></body></html>" > allure/index.html
+            echo "⚠️ No Allure results found"
+          fi
+
+      - name: Copy JMH Results
+        run: |
+          rm -rf benchmarks/jmh
+          mkdir -p benchmarks/jmh
+          if [ -d "downloaded/jmh-results" ] && [ -n "$(ls -A downloaded/jmh-results 2>/dev/null)" ]; then
+            cp -r downloaded/jmh-results/* benchmarks/jmh/
+            echo "✅ JMH results copied"
+          else
+            echo "<html><body><h1>No JMH Results</h1><p>No benchmark results available yet.</p></body></html>" > benchmarks/jmh/index.html
+            echo "⚠️ No JMH results found"
+          fi
+
+      - name: Copy JCStress Results
+        run: |
+          rm -rf benchmarks/jcstress
+          mkdir -p benchmarks/jcstress
+          if [ -d "downloaded/jcstress-results" ] && [ -n "$(ls -A downloaded/jcstress-results 2>/dev/null)" ]; then
+            cp -r downloaded/jcstress-results/* benchmarks/jcstress/
+            echo "✅ JCStress results copied"
+          else
+            echo "<html><body><h1>No JCStress Results</h1><p>No stress test results available yet.</p></body></html>" > benchmarks/jcstress/index.html
+            echo "⚠️ No JCStress results found"
+          fi
+
+      - name: Generate Global Index
+        run: |
+          cat > index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Crypto Arena - Reports</title>
+            <style>
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #fff; }
+              .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+              h1 { font-size: 2.5rem; margin-bottom: 10px; }
+              .subtitle { color: #8892b0; margin-bottom: 40px; }
+              .reports { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+              .report-card { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 24px; border: 1px solid rgba(255,255,255,0.1); transition: transform 0.2s, box-shadow 0.2s; }
+              .report-card:hover { transform: translateY(-4px); box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+              .report-card .icon { font-size: 2rem; margin-bottom: 12px; }
+              .report-card h3 { font-size: 1.25rem; margin-bottom: 8px; }
+              .report-card p { color: #8892b0; font-size: 0.9rem; margin-bottom: 16px; line-height: 1.5; }
+              .report-card a { display: inline-block; background: #007bff; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; transition: background 0.2s; }
+              .report-card a:hover { background: #0056b3; }
+              footer { margin-top: 60px; text-align: center; color: #8892b0; font-size: 0.85rem; }
+              footer a { color: #007bff; text-decoration: none; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>🚀 Crypto Arena</h1>
+              <p class="subtitle">High-performance cryptocurrency trading platform reports</p>
+              <div class="reports">
+                <div class="report-card">
+                  <div class="icon">📊</div>
+                  <h3>Allure Test Report</h3>
+                  <p>Detailed test results with steps, attachments, and execution history</p>
+                  <a href="./allure/">View Report</a>
+                </div>
+                <div class="report-card">
+                  <div class="icon">⚡</div>
+                  <h3>JMH Benchmarks</h3>
+                  <p>Java Microbenchmark Harness performance results and metrics</p>
+                  <a href="./benchmarks/jmh/">View Benchmarks</a>
+                </div>
+                <div class="report-card">
+                  <div class="icon">🔥</div>
+                  <h3>JCStress Tests</h3>
+                  <p>Concurrency stress test results for thread-safety validation</p>
+                  <a href="./benchmarks/jcstress/">View Results</a>
+                </div>
+              </div>
+              <footer>
+                <p>Generated by GitHub Actions • <a href="https://github.com/riad-cyber-coder/crypto-arena">View Repository</a></p>
+              </footer>
+            </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Debug final structure
+        run: |
+          echo "=== Final structure ==="
+          find . -maxdepth 3 -type f | grep -v '.git' | head -50
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to publish"
+          else
+            git commit -m "docs: update reports"
+            git push origin gh-pages
+          fi

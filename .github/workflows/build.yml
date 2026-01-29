@@ -1,0 +1,130 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      java_version:
+        type: string
+        default: '25'
+    outputs:
+      version:
+        description: 'Calculated version'
+        value: ${{ jobs.build.outputs.version }}
+      version_tag:
+        description: 'Version tag'
+        value: ${{ jobs.build.outputs.version_tag }}
+      should_release:
+        description: 'Should create release'
+        value: ${{ jobs.build.outputs.should_release }}
+
+jobs:
+  build:
+    name: 🏗️ Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ inputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java_version }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile
+        run: ./gradlew classes testClasses --no-daemon
+
+      - name: Test
+        run: ./gradlew test --no-daemon
+
+      - name: Collect Allure results (root)
+        if: always()
+        run: |
+          echo "Collecting Allure results from subprojects into root build/allure-results"
+          ./gradlew collectAllureResults --no-daemon || true
+
+      - name: Build
+        run: ./gradlew build -x test --no-daemon
+
+      - name: Determine Version
+        id: version
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+          
+          if [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+            COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline 2>/dev/null || git log --oneline)
+            if echo "$COMMITS" | grep -qiE "^[a-f0-9]+ (feat!|breaking|BREAKING)"; then
+              BUMP="major"
+            elif echo "$COMMITS" | grep -qiE "^[a-f0-9]+ feat"; then
+              BUMP="minor"
+            else
+              BUMP="patch"
+            fi
+            COMMIT_COUNT=$(git rev-list ${LATEST_TAG}..HEAD --count 2>/dev/null || echo "1")
+            SHOULD_RELEASE=$([[ "$COMMIT_COUNT" -gt 0 ]] && echo "true" || echo "false")
+          else
+            BUMP="patch"
+            SHOULD_RELEASE="false"
+          fi
+          
+          case "$BUMP" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+          esac
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: '**/build/test-results/**'
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: '**/build/libs/*.jar'
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Allure Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results
+          path: |
+            **/allure-results/**
+            **/build/allure-results/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Run common module tests (verbose) - debug
+        if: always()
+        run: |
+          echo "--- Running :common:test --info ---"
+          ./gradlew :common:test --no-daemon --info || true
+          echo "--- listing common/build ---"
+          ls -la common/build || true
+          echo "--- find common allure and test-results ---"
+          find common -type d -name 'allure-results' -print || true
+          find common -path '*/build/test-results/*' -name '*.xml' -print || true
+          find common -path '*/build/allure-results/*' -type f -print || true

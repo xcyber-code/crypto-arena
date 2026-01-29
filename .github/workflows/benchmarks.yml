@@ -1,0 +1,90 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crypto-arena-benchmarks/**'
+      - 'crypto-arena-engine/**'
+      - 'common/**'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '25'
+
+jobs:
+  jmh-benchmarks:
+    name: 🚀 JMH Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle (no cache)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+
+      - name: Run JMH Benchmarks
+        run: |
+          rm -rf ~/.gradle/configuration-cache .gradle/configuration-cache */build/configuration-cache 2>/dev/null || true
+          ./gradlew :crypto-arena-benchmarks:jmh \
+            --no-daemon \
+            --no-configuration-cache \
+            -Dorg.gradle.configuration-cache=false
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmh-results
+          path: crypto-arena-benchmarks/build/reports/jmh/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  jcstress:
+    name: 🔥 JCStress Concurrency Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle (no cache)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+
+      - name: Run JCStress Tests
+        run: |
+          rm -rf ~/.gradle/configuration-cache .gradle/configuration-cache */build/configuration-cache 2>/dev/null || true
+          ./gradlew :crypto-arena-stress:jcstress \
+            --no-daemon \
+            --no-configuration-cache \
+            -Dorg.gradle.configuration-cache=false \
+            || true
+
+      - name: Upload JCStress Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jcstress-results
+          path: crypto-arena-stress/build/reports/jcstress/
+          if-no-files-found: ignore
+          retention-days: 30

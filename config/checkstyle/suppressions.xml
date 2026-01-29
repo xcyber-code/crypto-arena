@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+    <!-- Suppress checks for test files -->
+    <suppress files=".*Test\.java" checks=".*"/>
+    <suppress files=".*Tests\.java" checks=".*"/>
+
+    <!-- Suppress checks for benchmark files -->
+    <suppress files=".*/jmh/.*" checks=".*"/>
+
+    <!-- Suppress checks for stress test files -->
+    <suppress files=".*/jcstress/.*" checks=".*"/>
+
+    <!-- Suppress JavadocMethod for private methods -->
+    <suppress checks="JavadocMethod" files=".*"/>
+</suppressions>

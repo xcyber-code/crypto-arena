@@ -1,0 +1,56 @@
+# Labeler configuration for automatic PR labeling
+# Used by .github/workflows/pr-check.yml
+
+# Module labels
+common:
+  - changed-files:
+      - any-glob-to-any-file: 'common/**'
+
+engine:
+  - changed-files:
+      - any-glob-to-any-file: 'crypto-arena-engine/**'
+
+streamer:
+  - changed-files:
+      - any-glob-to-any-file: 'crypto-arena-streamer/**'
+
+registry:
+  - changed-files:
+      - any-glob-to-any-file: 'crypto-arena-registry/**'
+
+benchmarks:
+  - changed-files:
+      - any-glob-to-any-file: 'crypto-arena-benchmarks/**'
+
+stress-tests:
+  - changed-files:
+      - any-glob-to-any-file: 'crypto-arena-stress/**'
+
+# Type labels
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: '**/*.md'
+      - any-glob-to-any-file: 'docs/**'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: '**/src/test/**'
+      - any-glob-to-any-file: '**/src/jmh/**'
+      - any-glob-to-any-file: '**/src/jcstress/**'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**'
+
+build:
+  - changed-files:
+      - any-glob-to-any-file: '**/build.gradle.kts'
+      - any-glob-to-any-file: 'settings.gradle.kts'
+      - any-glob-to-any-file: 'gradle/**'
+
+config:
+  - changed-files:
+      - any-glob-to-any-file: 'config/**'
+      - any-glob-to-any-file: '*.properties'
+      - any-glob-to-any-file: '*.yml'
+      - any-glob-to-any-file: '*.yaml'

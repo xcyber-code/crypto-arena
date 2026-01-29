@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+    with:
+      java_version: '25'
+
+  quality:
+    name: Quality
+    uses: ./.github/workflows/quality.yml
+    with:
+      java_version: '25'
+
+  release:
+    name: Release
+    needs: [build, quality]
+    if: |
+      needs.build.outputs.should_release == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+      version_tag: ${{ needs.build.outputs.version_tag }}
+
+  summary:
+    name: ✅ Summary
+    needs: [build, quality]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check Results
+        run: |
+          if [[ "${{ needs.build.result }}" == "failure" ]]; then
+            echo "❌ Build failed"
+            exit 1
+          fi
+          echo "✅ All checks passed!"

@@ -1,0 +1,76 @@
+name: Security Scan (OWASP)
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '25'
+
+jobs:
+  owasp-check:
+    name: 🔒 OWASP Dependency Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache NVD Database
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/dependency-check-data
+          key: nvd-db-${{ runner.os }}
+          restore-keys: nvd-db-
+
+      - name: Run OWASP Dependency Check
+        run: |
+          echo "Running OWASP Dependency Check..."
+          echo "This may take 20-30 minutes on first run (downloading NVD database)"
+          ./gradlew dependencyCheckAnalyze --no-daemon --no-configuration-cache \
+            -Dorg.gradle.jvmargs="--enable-native-access=ALL-UNNAMED"
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+      - name: Upload OWASP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: owasp-security-report
+          path: |
+            build/reports/dependency-check/
+            **/build/reports/dependency-check/
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Check for Critical Vulnerabilities
+        if: always()
+        run: |
+          if [ -f "build/reports/dependency-check/dependency-check-report.json" ]; then
+            # Count high/critical vulnerabilities
+            CRITICAL=$(jq '[.dependencies[]?.vulnerabilities[]? | select(.severity == "CRITICAL")] | length' build/reports/dependency-check/dependency-check-report.json 2>/dev/null || echo "0")
+            HIGH=$(jq '[.dependencies[]?.vulnerabilities[]? | select(.severity == "HIGH")] | length' build/reports/dependency-check/dependency-check-report.json 2>/dev/null || echo "0")
+            
+            echo "### 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ **Action Required:** Critical vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No OWASP report generated" >> $GITHUB_STEP_SUMMARY
+          fi
