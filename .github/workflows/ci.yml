@@ -62,22 +62,24 @@ jobs:
       - name: Run Tests
         run: ./gradlew test --no-daemon
 
-      - name: Upload Test Results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: |
-            **/build/test-results/test/*.xml
-            **/build/reports/tests/
-          retention-days: 7
+      - name: Debug: show allure-results produced by tests
+        run: |
+          echo "Searching for allure-results directories..."
+          find . -type d -name 'allure-results' -print -exec bash -c 'echo "--- contents of {}:"; find "{}" -maxdepth 2 -type f -print -exec ls -l {} \\; | sed -n "1,200p"' \;
+          echo "Summary per directory:"
+          for d in $(find . -type d -name 'allure-results'); do
+            echo "Dir: $d";
+            find "$d" -type f | wc -l | awk '{print "Files: " $1}';
+            du -sh "$d" || true;
+          done || true
 
       - name: Upload Allure Results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: allure-results
-          path: '**/allure-results/'
+          path: |
+            **/allure-results/**
           retention-days: 7
 
   # ==================== Code Coverage ====================
@@ -291,6 +293,58 @@ jobs:
           name: allure-results
           path: allure-results
 
+      - name: Debug: list downloaded artifact roots
+        run: |
+          echo "Workspace files (top-level):"
+          ls -la || true
+          echo "Find all allure-results dirs (max depth 8):"
+          find . -maxdepth 8 -type d -name 'allure-results' -print || true
+
+      - name: Merge Allure Results
+        run: |
+          set -euo pipefail
+          MERGED_DIR="merged-allure-results"
+          mkdir -p "$MERGED_DIR"
+          FOUND=0
+          while IFS= read -r dir; do
+            FOUND=1
+            echo "Merging results from: $dir"
+            # copy files, allow duplicates to overwrite (last wins)
+            cp -r "$dir"/* "$MERGED_DIR" || true
+          done < <(find . -maxdepth 8 -type d -name 'allure-results' -print)
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "No allure-results directories found after download. Check test configuration and upload-artifact step."
+            ls -la || true
+            exit 0
+          fi
+
+          echo "Merged results content (sample):"
+          ls -la "$MERGED_DIR" | sed -n '1,200p' || true
+
+          # Diagnostics: count files and relevant Allure JSON files
+          TOTAL_FILES=$(find "$MERGED_DIR" -type f | wc -l || true)
+          JSON_FILES=$(find "$MERGED_DIR" -type f -name '*.json' | wc -l || true)
+          CONTAINER_JSON=$(find "$MERGED_DIR" -type f -name '*-container.json' | wc -l || true)
+          RESULT_JSON=$(find "$MERGED_DIR" -type f -name '*-result.json' -o -name 'result.json' | wc -l || true)
+          echo "Diagnostics: total files=$TOTAL_FILES, json=$JSON_FILES, container-json=$CONTAINER_JSON, result-json=$RESULT_JSON"
+
+          if [ "$JSON_FILES" -eq 0 ]; then
+            echo "ERROR: No JSON files found in merged-allure-results — Allure will have nothing to render."
+            echo "Listing merged dir tree (up to depth 6):"
+            find "$MERGED_DIR" -maxdepth 6 -print -exec ls -l {} ";" || true
+            # fail fast to surface the problem in CI logs (do not proceed to generate empty report)
+            exit 0
+          fi
+
+          # Show a sample of one result JSON (if exists) for debugging
+          SAMPLE_JSON=$(find "$MERGED_DIR" -type f -name '*-result.json' -o -name 'result.json' | head -n1 || true)
+          if [ -n "$SAMPLE_JSON" ]; then
+            echo "--- Sample JSON ($SAMPLE_JSON) ---"
+            head -n 200 "$SAMPLE_JSON" || true
+            echo "--- end sample ---"
+          fi
+
       - name: Install Allure CLI
         run: |
           curl -o allure-2.29.0.tgz -Ls https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.tgz
@@ -299,7 +353,17 @@ jobs:
 
       - name: Generate Allure Report
         run: |
-          allure generate allure-results --clean -o allure-report
+          if [ ! -d "merged-allure-results" ] || [ -z "$(ls -A merged-allure-results 2>/dev/null)" ]; then
+            echo "Merged results directory is empty — aborting report generation"
+            ls -la merged-allure-results || true
+            exit 0
+          fi
+          allure generate merged-allure-results --clean -o allure-report
+
+      - name: Show generated report summary
+        run: |
+          echo "Allure report files (top):"
+          ls -la allure-report || true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
