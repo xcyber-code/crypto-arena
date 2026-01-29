@@ -23,16 +23,8 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup gh-pages branch
-        run: |
-          if git ls-remote --heads origin gh-pages | grep gh-pages; then
-            git checkout gh-pages
-            git pull origin gh-pages
-          else
-            git checkout --orphan gh-pages
-            git reset --hard
-            git clean -fd
-          fi
+      - name: Create publish directory
+        run: mkdir -p publish
 
       - name: Download Allure Results (from CI)
         uses: dawidd6/action-download-artifact@v3
@@ -79,45 +71,122 @@ jobs:
 
       - name: Generate Allure Report
         run: |
-          rm -rf allure
-          mkdir -p allure
+          mkdir -p publish/allure
           if [ -d "downloaded/allure-results" ] && [ -n "$(find downloaded/allure-results -name '*.json' 2>/dev/null)" ]; then
-            allure generate downloaded/allure-results --clean -o allure
+            allure generate downloaded/allure-results --clean -o publish/allure
             echo "✅ Allure report generated"
           else
-            echo "<html><body><h1>No Allure Results</h1><p>No test results available yet.</p></body></html>" > allure/index.html
+            echo "<html><body><h1>No Allure Results</h1><p>No test results available yet.</p></body></html>" > publish/allure/index.html
             echo "⚠️ No Allure results found"
           fi
 
       - name: Generate JMH HTML Report
         run: |
-          rm -rf benchmarks/jmh
-          mkdir -p benchmarks/jmh
+          mkdir -p publish/benchmarks/jmh
           if [ -d "downloaded/jmh-results" ] && [ -n "$(ls -A downloaded/jmh-results 2>/dev/null)" ]; then
             # Copy raw results
-            cp -r downloaded/jmh-results/* benchmarks/jmh/
-            # Generate HTML report from JSON using external script
-            python3 .github/scripts/jmh_to_html.py downloaded/jmh-results benchmarks/jmh
+            cp -r downloaded/jmh-results/* publish/benchmarks/jmh/
+            # Generate HTML report from JSON inline
+            python3 - downloaded/jmh-results publish/benchmarks/jmh << 'PYTHON_EOF'
+          import json, html, os, sys
+          from pathlib import Path
+
+          input_dir, output_dir = sys.argv[1], sys.argv[2]
+          Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+          json_file = None
+          for root, _, files in os.walk(input_dir):
+              for f in files:
+                  if f.endswith(".json"):
+                      json_file = os.path.join(root, f)
+                      break
+              if json_file:
+                  break
+
+          if not json_file:
+              Path(output_dir, "index.html").write_text("<html><body><h1>No JMH Results</h1></body></html>")
+              sys.exit(0)
+
+          with open(json_file, "r") as f:
+              data = json.load(f)
+
+          benchmarks = data if isinstance(data, list) else data.get("benchmarks", [])
+          rows = []
+          for b in benchmarks:
+              name = html.escape(b.get("benchmark", ""))
+              mode = html.escape(b.get("mode", ""))
+              pm = b.get("primaryMetric", {})
+              score = pm.get("score", 0)
+              unit = html.escape(pm.get("scoreUnit", ""))
+              error = pm.get("scoreError", 0)
+              params = b.get("params", {})
+              params_str = ", ".join(f"{k}={v}" for k, v in params.items()) if params else "-"
+              rows.append((name, params_str, mode, f"{score:.2f}", unit, f"± {error:.2f}" if error else "-"))
+
+          table_rows = "".join(f'<tr><td>{n}</td><td>{p}</td><td><span class="mode">{m}</span></td><td class="score">{s}</td><td>{u}</td><td class="error">{e}</td></tr>' for n, p, m, s, u, e in rows)
+
+          html_out = f'''<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>JMH Benchmark Results - Crypto Arena</title>
+            <style>
+              * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+              body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #fff; padding: 40px 20px; }}
+              .container {{ max-width: 1200px; margin: 0 auto; }}
+              h1 {{ font-size: 2rem; margin-bottom: 8px; }}
+              .subtitle {{ color: #8892b0; margin-bottom: 30px; }}
+              .back-link {{ color: #007bff; text-decoration: none; display: inline-block; margin-bottom: 20px; }}
+              .back-link:hover {{ text-decoration: underline; }}
+              table {{ width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; }}
+              th, td {{ padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }}
+              th {{ background: rgba(255,255,255,0.1); font-weight: 600; color: #ccd6f6; }}
+              tr:hover {{ background: rgba(255,255,255,0.03); }}
+              .score {{ font-weight: bold; color: #64ffda; }}
+              .error {{ color: #8892b0; font-size: 0.9em; }}
+              .mode {{ background: rgba(100,255,218,0.1); padding: 4px 8px; border-radius: 4px; font-size: 0.85em; }}
+              footer {{ margin-top: 40px; text-align: center; color: #8892b0; font-size: 0.85rem; }}
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <a href="../" class="back-link">← Back to Reports</a>
+              <h1>⚡ JMH Benchmark Results</h1>
+              <p class="subtitle">Java Microbenchmark Harness performance measurements</p>
+              <table>
+                <thead>
+                  <tr><th>Benchmark</th><th>Parameters</th><th>Mode</th><th>Score</th><th>Unit</th><th>Error</th></tr>
+                </thead>
+                <tbody>{table_rows}</tbody>
+              </table>
+              <footer><p>Generated from JMH results • {len(rows)} benchmark(s) executed</p></footer>
+            </div>
+          </body>
+          </html>'''
+
+          Path(output_dir, "index.html").write_text(html_out)
+          print(f"Generated JMH HTML report with {len(rows)} benchmarks")
+          PYTHON_EOF
           else
-            echo "<html><body><h1>No JMH Results</h1><p>No benchmark results available yet.</p></body></html>" > benchmarks/jmh/index.html
+            echo "<html><body><h1>No JMH Results</h1><p>No benchmark results available yet.</p></body></html>" > publish/benchmarks/jmh/index.html
             echo "⚠️ No JMH results found"
           fi
 
       - name: Copy JCStress Results
         run: |
-          rm -rf benchmarks/jcstress
-          mkdir -p benchmarks/jcstress
+          mkdir -p publish/benchmarks/jcstress
           if [ -d "downloaded/jcstress-results" ] && [ -n "$(ls -A downloaded/jcstress-results 2>/dev/null)" ]; then
-            cp -r downloaded/jcstress-results/* benchmarks/jcstress/
+            cp -r downloaded/jcstress-results/* publish/benchmarks/jcstress/
             echo "✅ JCStress results copied"
           else
-            echo "<html><body><h1>No JCStress Results</h1><p>No stress test results available yet.</p></body></html>" > benchmarks/jcstress/index.html
+            echo "<html><body><h1>No JCStress Results</h1><p>No stress test results available yet.</p></body></html>" > publish/benchmarks/jcstress/index.html
             echo "⚠️ No JCStress results found"
           fi
 
       - name: Generate Global Index
         run: |
-          cat > index.html << 'EOF'
+          cat > publish/index.html << 'EOF'
           <!DOCTYPE html>
           <html lang="en">
           <head>
@@ -177,14 +246,14 @@ jobs:
       - name: Debug final structure
         run: |
           echo "=== Final structure ==="
-          find . -maxdepth 3 -type f | grep -v '.git' | head -50
+          find publish -type f | head -50
 
       - name: Deploy to gh-pages using action
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: .
+          publish_dir: ./publish
           user_name: github-actions[bot]
           user_email: github@users.noreply.github.com
           keep_files: false
