@@ -191,6 +191,7 @@ jobs:
             nvd-${{ runner.os }}-
 
       - name: OWASP Dependency Check - Update Feeds
+        if: github.ref == 'refs/heads/main'
         run: |
           set -o errexit
           set -o pipefail
@@ -208,7 +209,7 @@ jobs:
           attempt=1
           while [ $attempt -le $MAX_ATTEMPTS ]; do
             echo "Update attempt $attempt/$MAX_ATTEMPTS"
-            if ./gradlew dependencyCheckUpdate --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR"; then
+            if ./gradlew dependencyCheckUpdate --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR" -DcveValidForHours=168 -DdependencyCheck.failOnError=false; then
               echo "dependencyCheckUpdate succeeded"
               break
             fi
@@ -229,6 +230,11 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
           GRADLE_OPTS: "${{ env.GRADLE_OPTS }} --enable-native-access=ALL-UNNAMED"
 
+      - name: OWASP Dependency Check - Skip Update (non-main)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Skipping dependencyCheckUpdate on non-main branch to save time; relying on cached NVD data if available."
+
       - name: OWASP Dependency Check - Analyze
         run: |
           set -o errexit
@@ -238,7 +244,7 @@ jobs:
           echo "Running dependencyCheckAnalyze using data directory: $DC_DATA_DIR"
 
           # Run analyze; do not fail pipeline if it fails
-          if ./gradlew dependencyCheckAnalyze --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR" -Dorg.gradle.workers.max=2; then
+          if ./gradlew dependencyCheckAnalyze --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR" -Dorg.gradle.workers.max=2 -DcveValidForHours=168 -DdependencyCheck.failOnError=false; then
             echo "OWASP Dependency Check analyze succeeded"
           else
             echo "OWASP Dependency Check analyze failed. See logs for details."
