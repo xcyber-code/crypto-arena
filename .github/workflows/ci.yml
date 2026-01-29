@@ -297,7 +297,7 @@ jobs:
           name: allure-results
           path: allure-results
 
-      - name: Debug: list downloaded artifact roots
+      - name: "Debug: list downloaded artifact roots"
         run: |
           echo "Workspace files (top-level):"
           ls -la || true
