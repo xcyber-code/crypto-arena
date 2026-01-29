@@ -193,12 +193,27 @@ jobs:
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
+      - name: Check OWASP Report exists
+        if: always()
+        run: |
+          echo "Looking for OWASP reports..."
+          find . -type f -name "dependency-check-report.*" -print 2>/dev/null || true
+          if [ -d "build/reports/dependency-check" ]; then
+            echo "Found root report:"
+            ls -la build/reports/dependency-check/ || true
+          else
+            echo "No OWASP report generated (check likely timed out or failed)"
+          fi
+
       - name: Upload OWASP Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: owasp-report
-          path: build/reports/dependency-check/
+          path: |
+            build/reports/dependency-check/
+            **/build/reports/dependency-check/
+          if-no-files-found: ignore
           retention-days: 30
 
   # ==================== Build ====================
