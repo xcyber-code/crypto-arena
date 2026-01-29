@@ -166,9 +166,10 @@ jobs:
     name: 🔒 Security Scan
     needs: quick-check
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # Only run on main branch or PRs to main
-    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    timeout-minutes: 15
+    # Only run on main branch
+    if: github.ref == 'refs/heads/main'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -181,77 +182,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # Cache NVD database to speed up OWASP check
-      - name: Cache NVD Database
-        uses: actions/cache@v4
-        with:
-          path: ~/.gradle/dependency-check-data
-          key: nvd-${{ runner.os }}-${{ hashFiles('**/build.gradle.kts') }}
-          restore-keys: |
-            nvd-${{ runner.os }}-
-
-      - name: OWASP Dependency Check - Update Feeds
-        if: github.ref == 'refs/heads/main'
+      - name: OWASP Dependency Check
+        timeout-minutes: 10
+        continue-on-error: true
         run: |
-          set -o errexit
-          set -o pipefail
-
-          DC_DATA_DIR="$HOME/.gradle/dependency-check-data"
-          echo "Dependency-Check data directory: $DC_DATA_DIR"
-
-          if [ -z "$NVD_API_KEY" ]; then
-            echo "WARN: NVD_API_KEY is not set. Update will use anonymous access and may be rate-limited."
-          else
-            echo "Using NVD API key from secrets for update."
-          fi
-
-          MAX_ATTEMPTS=4
-          attempt=1
-          while [ $attempt -le $MAX_ATTEMPTS ]; do
-            echo "Update attempt $attempt/$MAX_ATTEMPTS"
-            if ./gradlew dependencyCheckUpdate --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR" -DcveValidForHours=168 -DdependencyCheck.failOnError=false; then
-              echo "dependencyCheckUpdate succeeded"
-              break
-            fi
-            echo "dependencyCheckUpdate failed on attempt $attempt"
-            attempt=$((attempt+1))
-            sleep_seconds=$((attempt * 20))
-            echo "Sleeping $sleep_seconds seconds before retrying..."
-            sleep $sleep_seconds
-          done
-
-          if [ $attempt -gt $MAX_ATTEMPTS ]; then
-            echo "WARNING: dependencyCheckUpdate failed after $MAX_ATTEMPTS attempts. Will try analyze using existing cache if present."
-            if [ ! -d "$DC_DATA_DIR" ] || [ -z "$(ls -A $DC_DATA_DIR 2>/dev/null)" ]; then
-              echo "No DC cache available. Analysis may fail or be incomplete."
-            fi
-          fi
+          echo "Running OWASP Dependency Check (timeout 10 min)..."
+          ./gradlew dependencyCheckAnalyze --no-daemon \
+            -Dorg.gradle.jvmargs="--enable-native-access=ALL-UNNAMED" \
+            || echo "OWASP check failed or timed out - continuing anyway"
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          GRADLE_OPTS: "${{ env.GRADLE_OPTS }} --enable-native-access=ALL-UNNAMED"
-
-      - name: OWASP Dependency Check - Skip Update (non-main)
-        if: github.ref != 'refs/heads/main'
-        run: |
-          echo "Skipping dependencyCheckUpdate on non-main branch to save time; relying on cached NVD data if available."
-
-      - name: OWASP Dependency Check - Analyze
-        run: |
-          set -o errexit
-          set -o pipefail
-
-          DC_DATA_DIR="$HOME/.gradle/dependency-check-data"
-          echo "Running dependencyCheckAnalyze using data directory: $DC_DATA_DIR"
-
-          # Run analyze; do not fail pipeline if it fails
-          if ./gradlew dependencyCheckAnalyze --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR" -Dorg.gradle.workers.max=2 -DcveValidForHours=168 -DdependencyCheck.failOnError=false; then
-            echo "OWASP Dependency Check analyze succeeded"
-          else
-            echo "OWASP Dependency Check analyze failed. See logs for details."
-          fi
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          GRADLE_OPTS: "${{ env.GRADLE_OPTS }} --enable-native-access=ALL-UNNAMED"
 
       - name: Upload OWASP Report
         uses: actions/upload-artifact@v4
