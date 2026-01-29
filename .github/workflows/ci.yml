@@ -227,6 +227,7 @@ jobs:
           fi
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          GRADLE_OPTS: "${{ env.GRADLE_OPTS }} --enable-native-access=ALL-UNNAMED"
 
       - name: OWASP Dependency Check - Analyze
         run: |
@@ -244,6 +245,7 @@ jobs:
           fi
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          GRADLE_OPTS: "${{ env.GRADLE_OPTS }} --enable-native-access=ALL-UNNAMED"
 
       - name: Upload OWASP Report
         uses: actions/upload-artifact@v4
@@ -310,12 +312,11 @@ jobs:
           MERGED_DIR="merged-allure-results"
           mkdir -p "$MERGED_DIR"
           FOUND=0
-          while IFS= read -r dir; do
+          for dir in $(find . -maxdepth 8 -type d -name 'allure-results'); do
             FOUND=1
             echo "Merging results from: $dir"
-            # copy files, allow duplicates to overwrite (last wins)
-            cp -r "$dir"/* "$MERGED_DIR" || true
-          done < <(find . -maxdepth 8 -type d -name 'allure-results' -print)
+            cp -r "$dir"/* "$MERGED_DIR" 2>/dev/null || true
+          done
 
           if [ "$FOUND" -eq 0 ]; then
             echo "No allure-results directories found after download. Check test configuration and upload-artifact step."
@@ -336,12 +337,11 @@ jobs:
           if [ "$JSON_FILES" -eq 0 ]; then
             echo "ERROR: No JSON files found in merged-allure-results — Allure will have nothing to render."
             echo "Listing merged dir tree (up to depth 6):"
-            find "$MERGED_DIR" -maxdepth 6 -print -exec ls -l {} ";" || true
+            find "$MERGED_DIR" -maxdepth 6 -print
             # fail fast to surface the problem in CI logs (do not proceed to generate empty report)
             exit 0
           fi
 
-          # Show a sample of one result JSON (if exists) for debugging
           SAMPLE_JSON=$(find "$MERGED_DIR" -type f -name '*-result.json' -o -name 'result.json' | head -n1 || true)
           if [ -n "$SAMPLE_JSON" ]; then
             echo "--- Sample JSON ($SAMPLE_JSON) ---"
