@@ -187,7 +187,8 @@ jobs:
         continue-on-error: true
         run: |
           echo "Running OWASP Dependency Check (timeout 10 min)..."
-          ./gradlew dependencyCheckAnalyze --no-daemon \
+          # Disable configuration cache - OWASP plugin is not compatible with it
+          ./gradlew dependencyCheckAnalyze --no-daemon --no-configuration-cache \
             -Dorg.gradle.jvmargs="--enable-native-access=ALL-UNNAMED" \
             || echo "OWASP check failed or timed out - continuing anyway"
         env:
