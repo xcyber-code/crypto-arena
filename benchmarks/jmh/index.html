@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMH Benchmark Results - Crypto Arena</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; color: #fff; padding: 40px 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 2rem; margin-bottom: 8px; }
+    .subtitle { color: #8892b0; margin-bottom: 30px; }
+    .back-link { color: #007bff; text-decoration: none; display: inline-block; margin-bottom: 20px; }
+    .back-link:hover { text-decoration: underline; }
+    table { width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; }
+    th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    th { background: rgba(255,255,255,0.1); font-weight: 600; color: #ccd6f6; }
+    tr:hover { background: rgba(255,255,255,0.03); }
+    .score { font-weight: bold; color: #64ffda; }
+    .error { color: #8892b0; font-size: 0.9em; }
+    .mode { background: rgba(100,255,218,0.1); padding: 4px 8px; border-radius: 4px; font-size: 0.85em; }
+    footer { margin-top: 40px; text-align: center; color: #8892b0; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="../" class="back-link">← Back to Reports</a>
+    <h1>⚡ JMH Benchmark Results</h1>
+    <p class="subtitle">Java Microbenchmark Harness performance measurements</p>
+    <table>
+      <thead>
+        <tr><th>Benchmark</th><th>Parameters</th><th>Mode</th><th>Score</th><th>Unit</th><th>Error</th></tr>
+      </thead>
+      <tbody><tr><td>io.cryptoarena.benchmarks.SampleBenchmark.listIteration</td><td>-</td><td><span class="mode">thrpt</span></td><td class="score">1013.06</td><td>ops/ms</td><td class="error">± 9.86</td></tr><tr><td>io.cryptoarena.benchmarks.SampleBenchmark.parallelStreamSum</td><td>-</td><td><span class="mode">thrpt</span></td><td class="score">308.26</td><td>ops/ms</td><td class="error">± 6.68</td></tr><tr><td>io.cryptoarena.benchmarks.SampleBenchmark.streamSum</td><td>-</td><td><span class="mode">thrpt</span></td><td class="score">843.31</td><td>ops/ms</td><td class="error">± 5.28</td></tr><tr><td>io.cryptoarena.benchmarks.SampleBenchmark.listIteration</td><td>-</td><td><span class="mode">avgt</span></td><td class="score">0.00</td><td>ms/op</td><td class="error">± 0.00</td></tr><tr><td>io.cryptoarena.benchmarks.SampleBenchmark.parallelStreamSum</td><td>-</td><td><span class="mode">avgt</span></td><td class="score">0.00</td><td>ms/op</td><td class="error">± 0.00</td></tr><tr><td>io.cryptoarena.benchmarks.SampleBenchmark.streamSum</td><td>-</td><td><span class="mode">avgt</span></td><td class="score">0.00</td><td>ms/op</td><td class="error">± 0.00</td></tr></tbody>
+    </table>
+    <footer><p>Generated from JMH results • 6 benchmark(s) executed</p></footer>
+  </div>
+</body>
+</html>
