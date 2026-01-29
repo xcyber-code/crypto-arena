@@ -62,7 +62,7 @@ jobs:
       - name: Run Tests
         run: ./gradlew test --no-daemon
 
-      - name: Debug: show allure-results produced by tests
+      - name: "Debug: show allure-results produced by tests"
         run: |
           echo "Searching for allure-results directories..."
           find . -type d -name 'allure-results' -print
