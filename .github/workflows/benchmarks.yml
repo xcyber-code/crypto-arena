@@ -35,9 +35,14 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Clean Configuration Cache
+        run: rm -rf ~/.gradle/configuration-cache || true
 
       - name: Run JMH Benchmarks
-        run: ./gradlew :crypto-arena-benchmarks:jmh --no-daemon --no-configuration-cache
+        run: ./gradlew :crypto-arena-benchmarks:jmh --no-daemon -Dorg.gradle.configuration-cache=false
 
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v4
@@ -74,9 +79,14 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Clean Configuration Cache
+        run: rm -rf ~/.gradle/configuration-cache || true
 
       - name: Run JCStress Tests
-        run: ./gradlew :crypto-arena-stress:jcstress --no-daemon --no-configuration-cache || true
+        run: ./gradlew :crypto-arena-stress:jcstress --no-daemon -Dorg.gradle.configuration-cache=false || true
 
       - name: Upload JCStress Results
         uses: actions/upload-artifact@v4
