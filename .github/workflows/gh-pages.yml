@@ -89,13 +89,15 @@ jobs:
             echo "⚠️ No Allure results found"
           fi
 
-      - name: Copy JMH Results
+      - name: Generate JMH HTML Report
         run: |
           rm -rf benchmarks/jmh
           mkdir -p benchmarks/jmh
           if [ -d "downloaded/jmh-results" ] && [ -n "$(ls -A downloaded/jmh-results 2>/dev/null)" ]; then
+            # Copy raw results
             cp -r downloaded/jmh-results/* benchmarks/jmh/
-            echo "✅ JMH results copied"
+            # Generate HTML report from JSON using external script
+            python3 .github/scripts/jmh_to_html.py downloaded/jmh-results benchmarks/jmh
           else
             echo "<html><body><h1>No JMH Results</h1><p>No benchmark results available yet.</p></body></html>" > benchmarks/jmh/index.html
             echo "⚠️ No JMH results found"
