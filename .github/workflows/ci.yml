@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI
 
 on:
   push:
@@ -6,232 +6,36 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
-    inputs:
-      release:
-        description: 'Create a release?'
-        type: boolean
-        default: false
-      version_type:
-        description: 'Version bump type (if release)'
-        type: choice
-        options: [patch, minor, major]
-        default: 'patch'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  JAVA_VERSION: '25'
-
 jobs:
-  # ==================== Build & Test ====================
   build:
-    name: 🏗️ Build & Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      version_tag: ${{ steps.version.outputs.tag }}
-      should_release: ${{ steps.version.outputs.should_release }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    name: Build
+    uses: ./.github/workflows/build.yml
+    with:
+      java-version: '25'
 
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Compile
-        run: ./gradlew classes testClasses --no-daemon
-
-      - name: Test
-        run: ./gradlew test --no-daemon
-
-      - name: Build
-        run: ./gradlew build -x test --no-daemon
-
-      - name: Determine Version
-        id: version
-        run: |
-          # Get latest tag
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Latest tag: $LATEST_TAG"
-          
-          # Parse version
-          VERSION="${LATEST_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          MAJOR=${MAJOR:-0}
-          MINOR=${MINOR:-0}
-          PATCH=${PATCH:-0}
-          
-          # Determine bump type from commits or manual input
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.release }}" == "true" ]]; then
-            BUMP="${{ inputs.version_type }}"
-            SHOULD_RELEASE="true"
-          elif [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
-            # Auto-detect from commit messages
-            COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline 2>/dev/null || git log --oneline)
-            if echo "$COMMITS" | grep -qiE "^[a-f0-9]+ (feat!|breaking|BREAKING)"; then
-              BUMP="major"
-            elif echo "$COMMITS" | grep -qiE "^[a-f0-9]+ feat"; then
-              BUMP="minor"
-            else
-              BUMP="patch"
-            fi
-            # Only release if there are new commits
-            COMMIT_COUNT=$(git rev-list ${LATEST_TAG}..HEAD --count 2>/dev/null || echo "1")
-            if [[ "$COMMIT_COUNT" -gt 0 ]]; then
-              SHOULD_RELEASE="true"
-            else
-              SHOULD_RELEASE="false"
-            fi
-          else
-            BUMP="patch"
-            SHOULD_RELEASE="false"
-          fi
-          
-          # Calculate new version
-          case "$BUMP" in
-            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
-            minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
-            patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
-          esac
-          
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
-          echo "New version: v$NEW_VERSION (release: $SHOULD_RELEASE)"
-
-      - name: Upload Test Results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: '**/build/test-results/**'
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: '**/build/libs/*.jar'
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ==================== Code Quality ====================
   quality:
-    name: 🔬 Code Quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
+    name: Quality
+    uses: ./.github/workflows/quality.yml
+    with:
+      java-version: '25'
 
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: SpotBugs
-        run: ./gradlew spotbugsMain --no-daemon --continue || true
-
-      - name: Checkstyle
-        run: ./gradlew checkstyleMain --no-daemon --continue || true
-
-      - name: JaCoCo Coverage
-        run: ./gradlew jacocoRootReport --no-daemon || true
-
-      - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: build/reports/jacoco/jacocoRootReport/jacocoRootReport.xml
-          fail_ci_if_error: false
-
-      - name: Upload Quality Reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: quality-reports
-          path: |
-            **/build/reports/spotbugs/
-            **/build/reports/checkstyle/
-            **/build/reports/jacoco/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  # ==================== Release (only on main push, never on PR) ====================
   release:
-    name: 🚀 Release
+    name: Release
     needs: [build, quality]
     if: |
       needs.build.outputs.should_release == 'true' &&
-      github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+      version_tag: ${{ needs.build.outputs.version_tag }}
 
-      - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifacts
-          path: artifacts
-
-      - name: Create Git Tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a ${{ needs.build.outputs.version_tag }} -m "Release ${{ needs.build.outputs.version }}"
-          git push origin ${{ needs.build.outputs.version_tag }}
-
-      - name: Generate Changelog
-        id: changelog
-        run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREVIOUS_TAG" ]; then
-            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
-          else
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
-          fi
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.build.outputs.version_tag }}
-          name: Release ${{ needs.build.outputs.version }}
-          body: |
-            ## Changes
-            ${{ steps.changelog.outputs.changelog }}
-          files: artifacts/**/*.jar
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Release Summary
-        run: |
-          echo "### 🚀 Release ${{ needs.build.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Release created successfully!" >> $GITHUB_STEP_SUMMARY
-
-  # ==================== Summary ====================
   summary:
     name: ✅ Summary
     needs: [build, quality]
