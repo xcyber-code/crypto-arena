@@ -7,6 +7,14 @@ plugins {
 group = "io.cryptoarena"
 version = "1.0-SNAPSHOT"
 
+// OWASP Dependency Check tasks are not compatible with configuration cache
+tasks.withType<org.owasp.dependencycheck.gradle.tasks.Analyze>().configureEach {
+    notCompatibleWithConfigurationCache("OWASP Dependency Check plugin is not compatible with configuration cache")
+}
+tasks.withType<org.owasp.dependencycheck.gradle.tasks.Update>().configureEach {
+    notCompatibleWithConfigurationCache("OWASP Dependency Check plugin is not compatible with configuration cache")
+}
+
 // ==================== OWASP Dependency Check (Security Vulnerabilities) ====================
 dependencyCheck {
     // Analyze all configurations
