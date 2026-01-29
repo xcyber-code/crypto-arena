@@ -46,7 +46,7 @@ jobs:
             -Dorg.gradle.configuration-cache=false
 
       - name: Upload Benchmark Results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: jmh-results
           path: crypto-arena-benchmarks/build/reports/jmh/
@@ -94,7 +94,7 @@ jobs:
             || true
 
       - name: Upload JCStress Results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: jcstress-results
