@@ -111,10 +111,8 @@ jobs:
         if: always()
         with:
           name: allure-results
-          path: |
-            **/allure-results/**
-            **/build/allure-results/**
-          if-no-files-found: ignore
+          path: build/allure-results/
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Run common module tests (verbose) - debug

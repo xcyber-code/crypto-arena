@@ -72,11 +72,15 @@ jobs:
       - name: Generate Allure Report
         run: |
           mkdir -p publish/allure
+          
+          echo "=== Allure results structure ==="
+          find downloaded/allure-results -type f 2>/dev/null | head -30 || echo "No files found"
+          
           if [ -d "downloaded/allure-results" ] && [ -n "$(find downloaded/allure-results -name '*.json' 2>/dev/null)" ]; then
             allure generate downloaded/allure-results --clean -o publish/allure
             echo "✅ Allure report generated"
           else
-            echo "<html><body><h1>No Allure Results</h1><p>No test results available yet.</p></body></html>" > publish/allure/index.html
+            echo "<html><body><h1>No Allure Results</h1><p>No test results available yet. Make sure tests are running and generating Allure results.</p></body></html>" > publish/allure/index.html
             echo "⚠️ No Allure results found"
           fi
 

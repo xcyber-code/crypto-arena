@@ -243,31 +243,41 @@ tasks.register("collectAllureResults") {
         val outDir = layout.buildDirectory.dir("allure-results").get().asFile
         if (!outDir.exists()) outDir.mkdirs()
         println("Collecting Allure results into: ${outDir.absolutePath}")
+        var filesCopied = 0
         subprojects.forEach { p ->
-            val moduleName = p.name
             // possible locations: project root `allure-results` or `build/allure-results`
             val candidates = listOf(
                 p.layout.projectDirectory.dir("allure-results").asFile,
                 p.layout.buildDirectory.dir("allure-results").get().asFile
             )
             candidates.forEach { src ->
-                if (src.exists()) {
-                    println("Copying results from $src to ${outDir.resolve(moduleName)}")
-                    val target = outDir.resolve(moduleName)
-                    target.mkdirs()
+                if (src.exists() && src.isDirectory) {
+                    println("Found results in: $src")
+                    // Copy files directly to outDir (flat structure for Allure CLI)
                     src.listFiles()?.forEach { f ->
-                        try {
-                            f.copyTo(target.resolve(f.name), overwrite = true)
-                        } catch (e: Exception) {
-                            println("Failed to copy ${f.absolutePath}: ${e.message}")
+                        if (f.isFile) {
+                            try {
+                                // Use unique name to avoid conflicts: moduleName-filename
+                                val targetName = if (f.name.endsWith(".json") && !f.name.contains("-container") && !f.name.contains("-result")) {
+                                    "${p.name}-${f.name}"
+                                } else {
+                                    f.name
+                                }
+                                val target = outDir.resolve(targetName)
+                                // Don't overwrite if already exists with same name
+                                if (!target.exists()) {
+                                    f.copyTo(target, overwrite = false)
+                                    filesCopied++
+                                }
+                            } catch (e: Exception) {
+                                println("Failed to copy ${f.absolutePath}: ${e.message}")
+                            }
                         }
                     }
                 }
             }
         }
-        // print summary
-        val total = outDir.walkTopDown().filter { it.isFile }.count()
-        println("Collected $total files into $outDir")
+        println("Collected $filesCopied files into $outDir")
     }
 }
 
