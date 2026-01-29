@@ -26,38 +26,58 @@ dependencyCheck {
 
     // NVD API configuration - use API key for 10x faster downloads
     // Get your free key at: https://nvd.nist.gov/developers/request-an-api-key
+    // Set via: export NVD_API_KEY=your-key or GitHub Secrets
+    val nvdApiKey: String? = System.getenv("NVD_API_KEY")?.takeIf { it.isNotBlank() }
     nvd {
-        apiKey = System.getenv("NVD_API_KEY") ?: ""
-        delay = if (System.getenv("NVD_API_KEY").isNullOrEmpty()) 3500 else 0
-        datafeedUrl = "https://nvd.nist.gov/feeds/json/cve/1.1"
+        if (nvdApiKey != null) {
+            apiKey = nvdApiKey
+            delay = 0  // No delay needed with API key
+        } else {
+            delay = 3500  // Rate limiting without API key
+        }
     }
 
-    // Cache configuration
+    // Cache configuration - store in user home to persist across builds
     data {
         directory = System.getProperty("user.home") + "/.gradle/dependency-check-data"
     }
 
-    // Analyzers - disable unused ones for speed
+    // Analyzers - disable unused ones for speed (Java-only project)
     analyzers {
+        // .NET
         assemblyEnabled = false
-        nodeEnabled = false
-        nodeAuditEnabled = false
         nuspecEnabled = false
         nugetconfEnabled = false
-        pyDistributionEnabled = false
-        pyPackageEnabled = false
-        rubygemsEnabled = false
-        bundleAuditEnabled = false
-        cocoapodsEnabled = false
-        swiftEnabled = false
-        cmakeEnabled = false
-        autoconfEnabled = false
-        composerEnabled = false
-        cpanEnabled = false
-        dartEnabled = false
+
+        // JavaScript/Node
+        nodeEnabled = false
+        nodeAuditEnabled = false
         retirejs {
             enabled = false
         }
+
+        // Python
+        pyDistributionEnabled = false
+        pyPackageEnabled = false
+
+        // Ruby
+        rubygemsEnabled = false
+        bundleAuditEnabled = false
+
+        // iOS/Swift
+        cocoapodsEnabled = false
+        swiftEnabled = false
+
+        // C/C++
+        cmakeEnabled = false
+        autoconfEnabled = false
+
+        // Other
+        composerEnabled = false
+        cpanEnabled = false
+        dartEnabled = false
+        golangDepEnabled = false
+        golangModEnabled = false
     }
 
     // Skip test dependencies for faster scan
