@@ -11,6 +11,10 @@ tasks.withType<me.champeau.jmh.JmhBytecodeGeneratorTask>().configureEach {
 tasks.matching { it.name.startsWith("jmh") }.configureEach {
     notCompatibleWithConfigurationCache("JMH plugin is not compatible with configuration cache")
 }
+// jmhJar task specifically
+tasks.named("jmhJar") {
+    notCompatibleWithConfigurationCache("JMH jmhJar task is not compatible with configuration cache")
+}
 
 dependencies {
     // Modules to benchmark
