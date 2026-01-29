@@ -65,12 +65,16 @@ jobs:
       - name: Debug: show allure-results produced by tests
         run: |
           echo "Searching for allure-results directories..."
-          find . -type d -name 'allure-results' -print -exec bash -c 'echo "--- contents of {}:"; find "{}" -maxdepth 2 -type f -print -exec ls -l {} \\; | sed -n "1,200p"' \;
-          echo "Summary per directory:"
+          find . -type d -name 'allure-results' -print
+
+          echo "Summary per directory (count files + size):"
           for d in $(find . -type d -name 'allure-results'); do
             echo "Dir: $d";
             find "$d" -type f | wc -l | awk '{print "Files: " $1}';
             du -sh "$d" || true;
+            echo "Files inside (depth<=2):";
+            find "$d" -maxdepth 2 -type f -print | sed -n '1,200p';
+            echo "-----";
           done || true
 
       - name: Upload Allure Results
