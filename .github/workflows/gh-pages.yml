@@ -177,14 +177,13 @@ jobs:
           echo "=== Final structure ==="
           find . -maxdepth 3 -type f | grep -v '.git' | head -50
 
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No changes to publish"
-          else
-            git commit -m "docs: update reports"
-            git push origin gh-pages
-          fi
+      - name: Deploy to gh-pages using action
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .
+          user_name: github-actions[bot]
+          user_email: github@users.noreply.github.com
+          keep_files: false
+          allow_empty_commit: true
