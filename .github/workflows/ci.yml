@@ -252,13 +252,26 @@ jobs:
         run: |
           allure generate allure-results --clean -o allure-report
 
-      - name: Deploy Allure Report to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        if: github.ref == 'refs/heads/main'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: allure-report
+          node-version: '18'
+
+      - name: Install Netlify CLI
+        run: npm install -g netlify-cli@14
+
+      - name: Deploy Allure Report to Netlify
+        if: needs.test.result == 'success' && github.ref == 'refs/heads/main'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "NETLIFY_AUTH_TOKEN or NETLIFY_SITE_ID not set; skipping Netlify deploy."
+            exit 0
+          fi
+          echo "Deploying Allure report to Netlify site: $NETLIFY_SITE_ID"
+          netlify deploy --dir=allure-report --site="$NETLIFY_SITE_ID" --prod
 
   # ==================== Summary ====================
   ci-success:
