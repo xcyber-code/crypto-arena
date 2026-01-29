@@ -115,14 +115,3 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Run common module tests (verbose) - debug
-        if: always()
-        run: |
-          echo "--- Running :common:test --info ---"
-          ./gradlew :common:test --no-daemon --info || true
-          echo "--- listing common/build ---"
-          ls -la common/build || true
-          echo "--- find common allure and test-results ---"
-          find common -type d -name 'allure-results' -print || true
-          find common -path '*/build/test-results/*' -name '*.xml' -print || true
-          find common -path '*/build/allure-results/*' -type f -print || true
