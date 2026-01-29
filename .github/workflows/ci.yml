@@ -184,10 +184,59 @@ jobs:
           restore-keys: |
             nvd-${{ runner.os }}-
 
-      - name: OWASP Dependency Check
-        run: ./gradlew dependencyCheckAnalyze --no-daemon -Dorg.gradle.workers.max=2 || true
+      - name: OWASP Dependency Check - Update Feeds
+        run: |
+          set -o errexit
+          set -o pipefail
+
+          DC_DATA_DIR="$HOME/.gradle/dependency-check-data"
+          echo "Dependency-Check data directory: $DC_DATA_DIR"
+
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "WARN: NVD_API_KEY is not set. Update will use anonymous access and may be rate-limited."
+          else
+            echo "Using NVD API key from secrets for update."
+          fi
+
+          MAX_ATTEMPTS=4
+          attempt=1
+          while [ $attempt -le $MAX_ATTEMPTS ]; do
+            echo "Update attempt $attempt/$MAX_ATTEMPTS"
+            if ./gradlew dependencyCheckUpdate --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR"; then
+              echo "dependencyCheckUpdate succeeded"
+              break
+            fi
+            echo "dependencyCheckUpdate failed on attempt $attempt"
+            attempt=$((attempt+1))
+            sleep_seconds=$((attempt * 20))
+            echo "Sleeping $sleep_seconds seconds before retrying..."
+            sleep $sleep_seconds
+          done
+
+          if [ $attempt -gt $MAX_ATTEMPTS ]; then
+            echo "WARNING: dependencyCheckUpdate failed after $MAX_ATTEMPTS attempts. Will try analyze using existing cache if present."
+            if [ ! -d "$DC_DATA_DIR" ] || [ -z "$(ls -A $DC_DATA_DIR 2>/dev/null)" ]; then
+              echo "No DC cache available. Analysis may fail or be incomplete."
+            fi
+          fi
         env:
-          # Optional: NVD API key for faster downloads (get from https://nvd.nist.gov/developers/request-an-api-key)
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+
+      - name: OWASP Dependency Check - Analyze
+        run: |
+          set -o errexit
+          set -o pipefail
+
+          DC_DATA_DIR="$HOME/.gradle/dependency-check-data"
+          echo "Running dependencyCheckAnalyze using data directory: $DC_DATA_DIR"
+
+          # Run analyze; do not fail pipeline if it fails
+          if ./gradlew dependencyCheckAnalyze --no-daemon -DdependencyCheck.data.directory="$DC_DATA_DIR" -Dorg.gradle.workers.max=2; then
+            echo "OWASP Dependency Check analyze succeeded"
+          else
+            echo "OWASP Dependency Check analyze failed. See logs for details."
+          fi
+        env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
 
       - name: Upload OWASP Report
