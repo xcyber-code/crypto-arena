@@ -1,11 +1,21 @@
-name: CI
+name: CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create a release?'
+        type: boolean
+        default: false
+      version_type:
+        description: 'Version bump type (if release)'
+        type: choice
+        options: [patch, minor, major]
+        default: 'patch'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,16 +23,21 @@ concurrency:
 
 env:
   JAVA_VERSION: '25'
-  GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true'
 
 jobs:
-  # ==================== Quick Check ====================
-  quick-check:
-    name: 🔍 Quick Check
+  # ==================== Build & Test ====================
+  build:
+    name: 🏗️ Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -32,58 +47,88 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Compile
         run: ./gradlew classes testClasses --no-daemon
 
-  # ==================== Tests ====================
-  test:
-    name: 🧪 Tests
-    needs: quick-check
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-
-      - name: Run Tests
+      - name: Test
         run: ./gradlew test --no-daemon
+
+      - name: Build
+        run: ./gradlew build -x test --no-daemon
+
+      - name: Determine Version
+        id: version
+        run: |
+          # Get latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # Parse version
+          VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          MAJOR=${MAJOR:-0}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+          
+          # Determine bump type from commits or manual input
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.release }}" == "true" ]]; then
+            BUMP="${{ inputs.version_type }}"
+            SHOULD_RELEASE="true"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+            # Auto-detect from commit messages
+            COMMITS=$(git log ${LATEST_TAG}..HEAD --oneline 2>/dev/null || git log --oneline)
+            if echo "$COMMITS" | grep -qiE "^[a-f0-9]+ (feat!|breaking|BREAKING)"; then
+              BUMP="major"
+            elif echo "$COMMITS" | grep -qiE "^[a-f0-9]+ feat"; then
+              BUMP="minor"
+            else
+              BUMP="patch"
+            fi
+            # Only release if there are new commits
+            COMMIT_COUNT=$(git rev-list ${LATEST_TAG}..HEAD --count 2>/dev/null || echo "1")
+            if [[ "$COMMIT_COUNT" -gt 0 ]]; then
+              SHOULD_RELEASE="true"
+            else
+              SHOULD_RELEASE="false"
+            fi
+          else
+            BUMP="patch"
+            SHOULD_RELEASE="false"
+          fi
+          
+          # Calculate new version
+          case "$BUMP" in
+            major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+            minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+            patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+          esac
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+          echo "New version: v$NEW_VERSION (release: $SHOULD_RELEASE)"
 
       - name: Upload Test Results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
-          path: |
-            **/build/test-results/test/*.xml
-            **/build/reports/tests/
-          retention-days: 7
-
-      - name: Upload Allure Results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: allure-results
-          path: '**/allure-results/**'
+          path: '**/build/test-results/**'
           if-no-files-found: ignore
           retention-days: 7
 
-  # ==================== Code Coverage ====================
-  coverage:
-    name: 📊 Coverage
-    needs: test
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: '**/build/libs/*.jar'
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ==================== Code Quality ====================
+  quality:
+    name: 🔬 Code Quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -98,8 +143,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate Coverage Report
-        run: ./gradlew jacocoRootReport --no-daemon
+      - name: SpotBugs
+        run: ./gradlew spotbugsMain --no-daemon --continue || true
+
+      - name: Checkstyle
+        run: ./gradlew checkstyleMain --no-daemon --continue || true
+
+      - name: JaCoCo Coverage
+        run: ./gradlew jacocoRootReport --no-daemon || true
 
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -107,137 +158,88 @@ jobs:
           files: build/reports/jacoco/jacocoRootReport/jacocoRootReport.xml
           fail_ci_if_error: false
 
-      - name: Upload Coverage Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: build/reports/jacoco/
-          retention-days: 7
-
-  # ==================== Static Analysis ====================
-  static-analysis:
-    name: 🔬 Static Analysis
-    needs: quick-check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Run SpotBugs
-        run: ./gradlew spotbugsMain --no-daemon --continue || true
-
-      - name: Run Checkstyle
-        run: ./gradlew checkstyleMain --no-daemon --continue || true
-
-      - name: Upload SpotBugs Report
+      - name: Upload Quality Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: spotbugs-report
-          path: '**/build/reports/spotbugs/'
+          name: quality-reports
+          path: |
+            **/build/reports/spotbugs/
+            **/build/reports/checkstyle/
+            **/build/reports/jacoco/
+          if-no-files-found: ignore
           retention-days: 7
 
-      - name: Upload Checkstyle Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: checkstyle-report
-          path: '**/build/reports/checkstyle/'
-          retention-days: 7
-
-  # ==================== Build ====================
-  build:
-    name: 🏗️ Build
-    needs: [test, static-analysis]
+  # ==================== Release (only on main push, never on PR) ====================
+  release:
+    name: 🚀 Release
+    needs: [build, quality]
+    if: |
+      needs.build.outputs.should_release == 'true' &&
+      github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
         with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
+          fetch-depth: 0
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build
-        run: ./gradlew build -x test -x spotbugsMain -x spotbugsTest -x checkstyleMain -x checkstyleTest --no-daemon
-
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: '**/build/libs/*.jar'
-          retention-days: 7
-
-  # ==================== Allure Report ====================
-  allure-report:
-    name: 📈 Allure Report
-    needs: test
-    runs-on: ubuntu-latest
-    if: always() && needs.test.result != 'skipped'
-    steps:
-      - name: Download Allure Results
+      - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: allure-results
-          path: allure-results
-        continue-on-error: true
+          name: build-artifacts
+          path: artifacts
 
-      - name: Install Allure CLI
+      - name: Create Git Tag
         run: |
-          curl -o allure.tgz -Ls https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.tgz
-          tar -zxvf allure.tgz
-          echo "$PWD/allure-2.29.0/bin" >> $GITHUB_PATH
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ needs.build.outputs.version_tag }} -m "Release ${{ needs.build.outputs.version }}"
+          git push origin ${{ needs.build.outputs.version_tag }}
 
-      - name: Generate Allure Report
+      - name: Generate Changelog
+        id: changelog
         run: |
-          if [ -d "allure-results" ] && [ -n "$(ls -A allure-results 2>/dev/null)" ]; then
-            allure generate allure-results --clean -o allure-report
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
           else
-            echo "No allure results found"
-            mkdir -p allure-report
-            echo "<html><body><h1>No test results</h1></body></html>" > allure-report/index.html
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
           fi
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Deploy to Netlify
-        if: github.ref == 'refs/heads/main'
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.version_tag }}
+          name: Release ${{ needs.build.outputs.version }}
+          body: |
+            ## Changes
+            ${{ steps.changelog.outputs.changelog }}
+          files: artifacts/**/*.jar
+          draft: false
+          prerelease: false
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release Summary
         run: |
-          if [ -n "$NETLIFY_AUTH_TOKEN" ] && [ -n "$NETLIFY_SITE_ID" ]; then
-            npm install -g netlify-cli@14
-            netlify deploy --dir=allure-report --site="$NETLIFY_SITE_ID" --prod
-          else
-            echo "Netlify credentials not configured - skipping deploy"
-          fi
+          echo "### 🚀 Release ${{ needs.build.outputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Release created successfully!" >> $GITHUB_STEP_SUMMARY
 
   # ==================== Summary ====================
-  ci-success:
-    name: ✅ CI Success
-    needs: [test, coverage, static-analysis, build]
+  summary:
+    name: ✅ Summary
+    needs: [build, quality]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check Results
         run: |
-          if [[ "${{ needs.test.result }}" == "failure" ]]; then
-            echo "❌ Tests failed"
-            exit 1
-          fi
           if [[ "${{ needs.build.result }}" == "failure" ]]; then
             echo "❌ Build failed"
             exit 1
