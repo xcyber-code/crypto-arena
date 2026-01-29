@@ -37,7 +37,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run JMH Benchmarks
-        run: ./gradlew :crypto-arena-benchmarks:jmh --no-daemon
+        run: ./gradlew :crypto-arena-benchmarks:jmh --no-daemon --no-configuration-cache
 
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v4
@@ -76,7 +76,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run JCStress Tests
-        run: ./gradlew :crypto-arena-stress:jcstress --no-daemon || true
+        run: ./gradlew :crypto-arena-stress:jcstress --no-daemon --no-configuration-cache || true
 
       - name: Upload JCStress Results
         uses: actions/upload-artifact@v4

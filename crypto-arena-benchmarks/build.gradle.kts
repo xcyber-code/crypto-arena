@@ -4,6 +4,14 @@ plugins {
 
 description = "JMH Benchmarks for crypto-arena"
 
+// JMH tasks are not compatible with configuration cache
+tasks.withType<me.champeau.jmh.JmhBytecodeGeneratorTask>().configureEach {
+    notCompatibleWithConfigurationCache("JMH plugin is not compatible with configuration cache")
+}
+tasks.matching { it.name.startsWith("jmh") }.configureEach {
+    notCompatibleWithConfigurationCache("JMH plugin is not compatible with configuration cache")
+}
+
 dependencies {
     // Modules to benchmark
     implementation(project(":common"))
