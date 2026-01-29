@@ -26,33 +26,38 @@ jobs:
       - name: Create publish directory
         run: mkdir -p publish
 
-      - name: Download Allure Results (from CI)
-        uses: dawidd6/action-download-artifact@v3
+      - name: Download Allure Results
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ci.yml
+          workflow_conclusion: success
           name: allure-results
           path: downloaded/allure-results
           if_no_artifact_found: warn
           search_artifacts: true
-          branch: main
+          check_artifacts: true
         continue-on-error: true
 
       - name: Download JMH Results (from Benchmarks)
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: benchmarks.yml
+          workflow_conclusion: success
           name: jmh-results
           path: downloaded/jmh-results
           if_no_artifact_found: warn
+          search_artifacts: true
         continue-on-error: true
 
       - name: Download JCStress Results (from Benchmarks)
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: benchmarks.yml
+          workflow_conclusion: success
           name: jcstress-results
           path: downloaded/jcstress-results
           if_no_artifact_found: warn
+          search_artifacts: true
         continue-on-error: true
 
       - name: Install Allure CLI
@@ -64,10 +69,21 @@ jobs:
 
       - name: Debug downloaded artifacts
         run: |
+          echo "=== Downloaded directory structure ==="
+          ls -la downloaded/ 2>/dev/null || echo "No downloaded directory"
+          echo ""
           echo "=== Allure results ==="
-          find downloaded/allure-results -type f 2>/dev/null | head -20 || echo "No allure results"
+          if [ -d "downloaded/allure-results" ]; then
+            echo "Directory exists"
+            find downloaded/allure-results -type f 2>/dev/null | head -20 || echo "No files"
+            echo "File count: $(find downloaded/allure-results -type f 2>/dev/null | wc -l)"
+          else
+            echo "No allure results directory"
+          fi
+          echo ""
           echo "=== JMH results ==="
           find downloaded/jmh-results -type f 2>/dev/null | head -20 || echo "No JMH results"
+          echo ""
           echo "=== JCStress results ==="
           find downloaded/jcstress-results -type f 2>/dev/null | head -20 || echo "No JCStress results"
 

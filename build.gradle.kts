@@ -253,18 +253,11 @@ tasks.register("collectAllureResults") {
             candidates.forEach { src ->
                 if (src.exists() && src.isDirectory) {
                     println("Found results in: $src")
-                    // Copy files directly to outDir (flat structure for Allure CLI)
+                    // Copy all files directly to outDir (UUIDs in filenames ensure uniqueness)
                     src.listFiles()?.forEach { f ->
                         if (f.isFile) {
                             try {
-                                // Use unique name to avoid conflicts: moduleName-filename
-                                val targetName = if (f.name.endsWith(".json") && !f.name.contains("-container") && !f.name.contains("-result")) {
-                                    "${p.name}-${f.name}"
-                                } else {
-                                    f.name
-                                }
-                                val target = outDir.resolve(targetName)
-                                // Don't overwrite if already exists with same name
+                                val target = outDir.resolve(f.name)
                                 if (!target.exists()) {
                                     f.copyTo(target, overwrite = false)
                                     filesCopied++
