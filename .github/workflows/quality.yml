@@ -34,7 +34,7 @@ jobs:
         run: ./gradlew jacocoRootReport --no-daemon || true
 
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: build/reports/jacoco/jacocoRootReport/jacocoRootReport.xml
           fail_ci_if_error: false
