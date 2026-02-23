@@ -3,16 +3,16 @@ java = "25"
 
 # Testing
 junit = "5.10.2"
-assertj = "3.25.3"
-mockito = "5.10.0"
-allure = "2.29.0"
+assertj = "3.27.7"
+mockito = "5.21.0"
+allure = "2.33.0"
 
 # Benchmarking & Stress Testing
 jmh = "1.37"
 jcstress = "0.16"
 
 # Code Quality
-spotbugs = "6.0.27"
+spotbugs = "6.4.8"
 checkstyle = "10.21.1"
 jacoco = "0.8.13"
 
@@ -20,17 +20,17 @@ jacoco = "0.8.13"
 owasp-dependencycheck = "11.1.1"
 
 # Logging
-slf4j = "2.0.12"
-logback = "1.4.14"
+slf4j = "2.0.17"
+logback = "1.5.32"
 
 # JSON / Serialization
-jackson = "2.16.1"
+jackson = "2.21"
 
 # HTTP
 okhttp = "4.12.0"
 
 # Crypto
-bouncycastle = "1.77"
+bouncycastle = "1.83"
 
 [libraries]
 # Logging
@@ -73,6 +73,6 @@ testing = ["junit-jupiter", "assertj-core", "mockito-core"]
 logging = ["slf4j-api", "logback-classic"]
 
 [plugins]
-jmh = { id = "me.champeau.jmh", version = "0.7.2" }
+jmh = { id = "me.champeau.jmh", version = "0.7.3" }
 spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs" }
 owasp-dependencycheck = { id = "org.owasp.dependencycheck", version.ref = "owasp-dependencycheck" }
